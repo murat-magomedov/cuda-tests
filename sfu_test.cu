@@ -31,7 +31,7 @@ __global__ void sfu_test(T *x, T *y, size_t N, int iters){
             T e = log(fabs(out) + (T)1.0);  // guard against log(<=0)
 
             // combine so every term is live and the compiler can't drop any call
-            out = a + b + c + d + e + f;
+            out = a + b + c + d + e;
         }
         y[idx] = out;
     }
