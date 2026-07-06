@@ -77,6 +77,13 @@ void run_test(const char* label){
 }
 
 int main(){
+    int device = 0;
+    cudaDeviceProp prop;
+    CUDA_CHECK(cudaGetDevice(&device));
+    CUDA_CHECK(cudaGetDeviceProperties(&prop, device));
+    printf("GPU: %s (SM %d.%d, %d SMs)\n\n",
+           prop.name, prop.major, prop.minor, prop.multiProcessorCount);
+
     run_test<float>("float  mixed");
     run_test<double>("double mixed");
     return 0;
