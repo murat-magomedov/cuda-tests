@@ -1,7 +1,6 @@
 #include <cstdio>
 #include <vector>
 #include <cmath>
-#include <chrono>
 
 #define CUDA_CHECK(call)                                                     \
     do {                                                                     \
@@ -14,17 +13,25 @@
     } while (0)
 
 #define BLOCK_SIZE 128
-#define NUM_ITERS 20   // repeat to average out noise / expose steady-state cost
+#define NUM_ITERS 20
 
 template <typename T>
 __global__ void sfu_test(T *x, T *y, size_t N, int iters){
     size_t idx = (size_t)blockDim.x * blockIdx.x + threadIdx.x;
     if(idx < N){
         T in = x[idx];
-        T out = in;
+        T out = in + (T)1.0;   // avoid 0 for sqrt/log/rsqrt on first pass
+
         #pragma unroll 1
         for(int i = 0; i < iters; i++){
-            out = sin(out + in);   // dependent chain, prevents CSE/removal
+            T a = sqrt(out);
+            T b = exp((T)0.001 * out);      // scaled to avoid overflow across iters
+            T c = sin(out);
+            T d = cos(out);
+            T e = log(fabs(out) + (T)1.0);  // guard against log(<=0)
+
+            // combine so every term is live and the compiler can't drop any call
+            out = a + b + c + d + e + f;
         }
         y[idx] = out;
     }
@@ -32,10 +39,10 @@ __global__ void sfu_test(T *x, T *y, size_t N, int iters){
 
 template <typename T>
 void run_test(const char* label){
-    const size_t N = 1 << 26;   // scale down a bit; NUM_ITERS adds the real work
+    const size_t N = 1 << 24;
     std::vector<T> x(N), y(N);
     for(size_t i = 0; i < N; i++){
-        x[i] = std::fmod((T)i, (T)(2.0 * M_PI));  // keep args in a sane range
+        x[i] = std::fmod((T)i, (T)(2.0 * M_PI));
     }
     size_t bytes = sizeof(T) * N;
     T *d_x, *d_y;
@@ -49,7 +56,6 @@ void run_test(const char* label){
     CUDA_CHECK(cudaEventCreate(&start));
     CUDA_CHECK(cudaEventCreate(&stop));
 
-    // warm-up (first launch pays context/JIT costs)
     sfu_test<T><<<NUM_BLOCKS, BLOCK_SIZE>>>(d_x, d_y, N, NUM_ITERS);
     CUDA_CHECK(cudaDeviceSynchronize());
 
@@ -71,7 +77,7 @@ void run_test(const char* label){
 }
 
 int main(){
-    run_test<float>("float  sin");
-    run_test<double>("double sin");
+    run_test<float>("float  mixed");
+    run_test<double>("double mixed");
     return 0;
 }
